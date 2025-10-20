@@ -1,12 +1,13 @@
 import type { AppLoadContext } from '@remix-run/node';
 import { RemixServer } from '@remix-run/react';
 import { isbot } from 'isbot';
-import * as ReactDOMServer from 'react-dom/server';
+import ReactDOMServer from 'react-dom/server';
 import { renderHeadToString } from 'remix-island';
 import { Head } from './root';
 import { themeStore } from '~/lib/stores/theme';
 
-const { renderToReadableStream } = ReactDOMServer;
+// @ts-ignore - Vercel Node.js runtime compatibility
+const renderToReadableStream = ReactDOMServer.renderToReadableStream || ReactDOMServer.default?.renderToReadableStream;
 
 export default async function handleRequest(
   request: Request,
