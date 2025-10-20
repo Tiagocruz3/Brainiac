@@ -2,12 +2,6 @@
   "buildCommand": "pnpm run build",
   "devCommand": "pnpm run dev",
   "installCommand": "pnpm install",
-  "framework": null,
-  "functions": {
-    "**/*.func/**": {
-      "maxDuration": 30
-    }
-  },
   "build": {
     "env": {
       "NODE_VERSION": "20"
