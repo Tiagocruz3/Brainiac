@@ -40,6 +40,9 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 }
 
 async function chatAction({ context, request }: ActionFunctionArgs) {
+  // Get server environment (works for both Cloudflare and Vercel)
+  const serverEnv = (context as any)?.cloudflare?.env || {};
+  
   const streamRecovery = new StreamRecoveryManager({
     timeout: 45000,
     maxRetries: 2,
@@ -120,7 +123,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
           summary = await createSummary({
             messages: [...processedMessages],
-            env: context.cloudflare?.env,
+            env: serverEnv,
             apiKeys,
             providerSettings,
             promptId,
@@ -162,7 +165,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           console.log(`Messages count: ${processedMessages.length}`);
           filteredFiles = await selectContext({
             messages: [...processedMessages],
-            env: context.cloudflare?.env,
+            env: serverEnv,
             apiKeys,
             files,
             providerSettings,
@@ -268,7 +271,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
             const result = await streamText({
               messages: [...processedMessages],
-              env: context.cloudflare?.env,
+              env: serverEnv,
               options,
               apiKeys,
               files,
@@ -309,7 +312,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
         const result = await streamText({
           messages: [...processedMessages],
-          env: context.cloudflare?.env,
+          env: serverEnv,
           options,
           apiKeys,
           files,
