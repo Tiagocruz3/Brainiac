@@ -1,4 +1,4 @@
-import type { MetaFunction } from '@remix-run/cloudflare';
+import type { MetaFunction } from '@remix-run/node';
 import { AdminPage } from '~/components/admin/AdminPage';
 
 export const meta: MetaFunction = () => {
