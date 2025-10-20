@@ -3,42 +3,50 @@ import { LLMManager } from '~/lib/modules/llm/manager';
 import { getApiKeysFromCookie } from '~/lib/api/cookies';
 
 export const loader: LoaderFunction = async ({ context, request }) => {
-  // Get API keys from cookie
-  const cookieHeader = request.headers.get('Cookie');
-  const apiKeysFromCookie = getApiKeysFromCookie(cookieHeader);
+  try {
+    // Get API keys from cookie
+    const cookieHeader = request.headers.get('Cookie');
+    const apiKeysFromCookie = getApiKeysFromCookie(cookieHeader);
 
-  // Initialize the LLM manager to access environment variables
-  const llmManager = LLMManager.getInstance(context?.cloudflare?.env as any);
+    // Get server environment (works for both Cloudflare and Vercel)
+    const serverEnv = (context as any)?.cloudflare?.env || {};
 
-  // Get all provider instances to find their API token keys
-  const providers = llmManager.getAllProviders();
+    // Initialize the LLM manager to access environment variables
+    const llmManager = LLMManager.getInstance(serverEnv);
 
-  // Create a comprehensive API keys object
-  const apiKeys: Record<string, string> = { ...apiKeysFromCookie };
+    // Get all provider instances to find their API token keys
+    const providers = llmManager.getAllProviders();
 
-  // For each provider, check all possible sources for API keys
-  for (const provider of providers) {
-    if (!provider.config.apiTokenKey) {
-      continue;
+    // Create a comprehensive API keys object
+    const apiKeys: Record<string, string> = { ...apiKeysFromCookie };
+
+    // For each provider, check all possible sources for API keys
+    for (const provider of providers) {
+      if (!provider.config.apiTokenKey) {
+        continue;
+      }
+
+      const envVarName = provider.config.apiTokenKey;
+
+      // Skip if we already have this provider's key from cookies
+      if (apiKeys[provider.name]) {
+        continue;
+      }
+
+      // Check environment variables in order of precedence
+      const envValue =
+        serverEnv?.[envVarName] ||
+        process.env[envVarName] ||
+        llmManager.env[envVarName];
+
+      if (envValue) {
+        apiKeys[provider.name] = envValue;
+      }
     }
 
-    const envVarName = provider.config.apiTokenKey;
-
-    // Skip if we already have this provider's key from cookies
-    if (apiKeys[provider.name]) {
-      continue;
-    }
-
-    // Check environment variables in order of precedence
-    const envValue =
-      (context?.cloudflare?.env as Record<string, any>)?.[envVarName] ||
-      process.env[envVarName] ||
-      llmManager.env[envVarName];
-
-    if (envValue) {
-      apiKeys[provider.name] = envValue;
-    }
+    return Response.json(apiKeys);
+  } catch (error) {
+    console.error('Error exporting API keys:', error);
+    return Response.json({});
   }
-
-  return Response.json(apiKeys);
 };
