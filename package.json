@@ -12,6 +12,8 @@
   },
   "scripts": {
     "deploy": "npm run build && wrangler pages deploy",
+    "deploy:vercel": "vercel --prod",
+    "vercel:check": "node vercel-deploy-check.js",
     "build": "remix vite:build",
     "dev": "node pre-start.cjs  && remix vite:dev",
     "test": "vitest --run",
