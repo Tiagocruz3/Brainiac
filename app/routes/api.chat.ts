@@ -393,11 +393,11 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           // Open/close thought wrapper around 'g:' chunks
           if (typeof chunk === 'string') {
             if (chunk.startsWith('g') && !lastChunk.startsWith('g')) {
-              controller.enqueue(encoder.encode(`data: 0: "<div class=\\"__boltThought__\\">"\\n\n`));
+              controller.enqueue(encoder.encode(`data: 0: <div class="__boltThought__">\n\n`));
             }
 
             if (lastChunk.startsWith('g') && !chunk.startsWith('g')) {
-              controller.enqueue(encoder.encode(`data: 0: "</div>\\n"\\n\n`));
+              controller.enqueue(encoder.encode(`data: 0: </div>\n\n`));
             }
           }
 
