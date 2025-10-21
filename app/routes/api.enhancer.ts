@@ -12,6 +12,9 @@ export async function action(args: ActionFunctionArgs) {
 const logger = createScopedLogger('api.enhancher');
 
 async function enhancerAction({ context, request }: ActionFunctionArgs) {
+  // Get server environment (works for both Cloudflare and Vercel)
+  const serverEnv = (context as any)?.cloudflare?.env || {};
+  
   const { message, model, provider } = await request.json<{
     message: string;
     model: string;
@@ -77,7 +80,7 @@ async function enhancerAction({ context, request }: ActionFunctionArgs) {
           `,
         },
       ],
-      env: context.cloudflare?.env as any,
+      env: serverEnv,
       apiKeys,
       providerSettings,
       options: {

@@ -65,6 +65,9 @@ function validateTokenLimits(modelDetails: ModelInfo, requestedTokens: number): 
 }
 
 async function llmCallAction({ context, request }: ActionFunctionArgs) {
+  // Get server environment (works for both Cloudflare and Vercel)
+  const serverEnv = (context as any)?.cloudflare?.env || {};
+  
   const { system, message, model, provider, streamOutput } = await request.json<{
     system: string;
     message: string;
@@ -106,7 +109,7 @@ async function llmCallAction({ context, request }: ActionFunctionArgs) {
             content: `${message}`,
           },
         ],
-        env: context.cloudflare?.env as any,
+        env: serverEnv,
         apiKeys,
         providerSettings,
       });
@@ -151,7 +154,7 @@ async function llmCallAction({ context, request }: ActionFunctionArgs) {
     }
   } else {
     try {
-      const models = await getModelList({ apiKeys, providerSettings, serverEnv: context.cloudflare?.env as any });
+      const models = await getModelList({ apiKeys, providerSettings, serverEnv });
       const modelDetails = models.find((m: ModelInfo) => m.name === model);
 
       if (!modelDetails) {
@@ -196,7 +199,7 @@ async function llmCallAction({ context, request }: ActionFunctionArgs) {
         ],
         model: providerInfo.getModelInstance({
           model: modelDetails.name,
-          serverEnv: context.cloudflare?.env as any,
+          serverEnv,
           apiKeys,
           providerSettings,
         }),
