@@ -412,10 +412,13 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               content = content.slice(0, content.length - 1);
             }
 
-            transformedChunk = `0:${content}\n`;
+            transformedChunk = `0:${content}`;
           }
 
-          const payload = typeof transformedChunk === 'string' ? transformedChunk : JSON.stringify(transformedChunk);
+          let payload = typeof transformedChunk === 'string' ? transformedChunk : JSON.stringify(transformedChunk);
+          if (typeof payload === 'string' && payload.endsWith('\n')) {
+            payload = payload.slice(0, -1);
+          }
           controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
         },
       }),
