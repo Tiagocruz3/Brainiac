@@ -390,13 +390,14 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             lastChunk = ' ';
           }
 
+          // Open/close thought wrapper around 'g:' chunks
           if (typeof chunk === 'string') {
             if (chunk.startsWith('g') && !lastChunk.startsWith('g')) {
-              controller.enqueue(encoder.encode(`0: "<div class=\\"__boltThought__\\">"\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(`0: "<div class=\\\"__boltThought__\\\">"\n`)}\n\n`));
             }
 
             if (lastChunk.startsWith('g') && !chunk.startsWith('g')) {
-              controller.enqueue(encoder.encode(`0: "</div>\\n"\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(`0: "</div>\\n"\n`)}\n\n`));
             }
           }
 
@@ -414,9 +415,8 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             transformedChunk = `0:${content}\n`;
           }
 
-          // Convert the string stream to a byte stream
-          const str = typeof transformedChunk === 'string' ? transformedChunk : JSON.stringify(transformedChunk);
-          controller.enqueue(encoder.encode(str));
+          const payload = typeof transformedChunk === 'string' ? transformedChunk : JSON.stringify(transformedChunk);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
         },
       }),
     );
@@ -427,7 +427,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         'Content-Type': 'text/event-stream; charset=utf-8',
         Connection: 'keep-alive',
         'Cache-Control': 'no-cache',
-        'Text-Encoding': 'chunked',
       },
     });
   } catch (error: any) {
