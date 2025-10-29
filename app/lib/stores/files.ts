@@ -65,6 +65,16 @@ export class FilesStore {
   #deletedPaths: Set<string> = import.meta.hot?.data.deletedPaths ?? new Set();
 
   /**
+   * Maximum size for deleted paths to prevent memory leaks
+   */
+  readonly #MAX_DELETED_PATHS = 1000;
+
+  /**
+   * Maximum size for modified files to prevent memory leaks
+   */
+  readonly #MAX_MODIFIED_FILES = 500;
+
+  /**
    * Map of files that matches the state of WebContainer.
    */
   files: MapStore<FileMap> = import.meta.hot?.data.files ?? map({});
@@ -107,8 +117,8 @@ export class FilesStore {
     if (typeof window !== 'undefined') {
       let lastChatId = getCurrentChatId();
 
-      // Use MutationObserver to detect URL changes (for SPA navigation)
-      const observer = new MutationObserver(() => {
+      // Use popstate event for navigation instead of MutationObserver (more efficient)
+      const handleNavigation = () => {
         const currentChatId = getCurrentChatId();
 
         if (currentChatId !== lastChatId) {
@@ -116,9 +126,21 @@ export class FilesStore {
           lastChatId = currentChatId;
           this.#loadLockedFiles(currentChatId);
         }
-      });
+      };
 
-      observer.observe(document, { subtree: true, childList: true });
+      // Listen to popstate for back/forward navigation
+      window.addEventListener('popstate', handleNavigation);
+
+      // Also check periodically but less frequently
+      const navigationCheckInterval = setInterval(handleNavigation, 5000);
+
+      // Store cleanup function
+      if (import.meta.hot) {
+        import.meta.hot.dispose(() => {
+          window.removeEventListener('popstate', handleNavigation);
+          clearInterval(navigationCheckInterval);
+        });
+      }
     }
 
     this.#init();
@@ -547,6 +569,55 @@ export class FilesStore {
     this.#modifiedFiles.clear();
   }
 
+  /**
+   * Prune old entries from modifiedFiles to prevent memory leaks
+   */
+  #pruneModifiedFiles() {
+    if (this.#modifiedFiles.size > this.#MAX_MODIFIED_FILES) {
+      logger.warn(`Modified files limit reached (${this.#modifiedFiles.size}), pruning old entries`);
+
+      // Convert to array, sort by some criteria (we'll keep most recent modifications)
+      const entries = Array.from(this.#modifiedFiles.entries());
+      const currentFiles = this.files.get();
+
+      // Remove entries for files that no longer exist
+      const validEntries = entries.filter(([path]) => currentFiles[path]);
+
+      // If still too large, keep only the most recent MAX_MODIFIED_FILES entries
+      if (validEntries.length > this.#MAX_MODIFIED_FILES) {
+        const toKeep = validEntries.slice(-this.#MAX_MODIFIED_FILES);
+        this.#modifiedFiles.clear();
+        toKeep.forEach(([path, content]) => this.#modifiedFiles.set(path, content));
+        logger.info(`Pruned modified files to ${this.#modifiedFiles.size} entries`);
+      } else {
+        // Just remove non-existent files
+        this.#modifiedFiles.clear();
+        validEntries.forEach(([path, content]) => this.#modifiedFiles.set(path, content));
+      }
+    }
+  }
+
+  /**
+   * Prune old entries from deletedPaths to prevent memory leaks
+   */
+  #pruneDeletedPaths() {
+    if (this.#deletedPaths.size > this.#MAX_DELETED_PATHS) {
+      logger.warn(`Deleted paths limit reached (${this.#deletedPaths.size}), pruning old entries`);
+
+      // Convert to array and keep only the most recent MAX_DELETED_PATHS / 2 entries
+      const entries = Array.from(this.#deletedPaths);
+      const toKeep = entries.slice(-Math.floor(this.#MAX_DELETED_PATHS / 2));
+
+      this.#deletedPaths.clear();
+      toKeep.forEach(path => this.#deletedPaths.add(path));
+
+      // Update localStorage
+      this.#persistDeletedPaths();
+
+      logger.info(`Pruned deleted paths to ${this.#deletedPaths.size} entries`);
+    }
+  }
+
   async saveFile(filePath: string, content: string) {
     const webcontainer = await this.#webcontainer;
 
@@ -567,6 +638,8 @@ export class FilesStore {
 
       if (!this.#modifiedFiles.has(filePath)) {
         this.#modifiedFiles.set(filePath, oldContent);
+        // Prune modified files if needed
+        this.#pruneModifiedFiles();
       }
 
       // Get the current lock state before updating
@@ -625,6 +698,7 @@ export class FilesStore {
     /**
      * Set up a less frequent periodic check to ensure locks remain applied.
      * This is now less critical since we have the storage event listener.
+     * Also perform memory cleanup during this check.
      */
     setInterval(() => {
       // Clear the cache to force a fresh read from localStorage
@@ -632,7 +706,11 @@ export class FilesStore {
 
       const latestChatId = getCurrentChatId();
       this.#loadLockedFiles(latestChatId);
-    }, 30000); // Reduced from 10s to 30s
+
+      // Perform periodic memory cleanup
+      this.#pruneModifiedFiles();
+      this.#pruneDeletedPaths();
+    }, 60000); // Increased from 30s to 60s to reduce overhead
   }
 
   /**
@@ -856,6 +934,7 @@ export class FilesStore {
       await webcontainer.fs.rm(relativePath);
 
       this.#deletedPaths.add(filePath);
+      this.#pruneDeletedPaths(); // Prune if needed
 
       this.files.setKey(filePath, undefined);
       this.#size--;
@@ -909,6 +988,7 @@ export class FilesStore {
         }
       }
 
+      this.#pruneDeletedPaths(); // Prune if needed after batch deletions
       this.#persistDeletedPaths();
 
       logger.info(`Folder deleted: ${folderPath}`);
