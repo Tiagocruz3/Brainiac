@@ -87,15 +87,12 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     promptTokens: 0,
     totalTokens: 0,
   };
-  const encoder: TextEncoder = new TextEncoder();
   let progressCounter: number = 1;
 
   try {
     const mcpService = MCPService.getInstance();
     const totalMessageContent = messages.reduce((acc, message) => acc + message.content, '');
     logger.debug(`Total message length: ${totalMessageContent.split(' ').length}, words`);
-
-    let lastChunk: string | undefined = undefined;
 
     const dataStream = createDataStream({
       async execute(dataStream) {
@@ -396,53 +393,15 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
         return `Custom error: ${errorMessage}`;
       },
-    }).pipeThrough(
-      new TransformStream({
-        transform: (chunk, controller) => {
-          if (!lastChunk) {
-            lastChunk = ' ';
-          }
-
-          // Open/close thought wrapper around 'g:' chunks
-          if (typeof chunk === 'string') {
-            if (chunk.startsWith('g') && !lastChunk.startsWith('g')) {
-              controller.enqueue(encoder.encode(`data: 0:<div class="__boltThought__">\n\n`));
-            }
-
-            if (lastChunk.startsWith('g') && !chunk.startsWith('g')) {
-              controller.enqueue(encoder.encode(`data: 0:</div>\n\n`));
-            }
-          }
-
-          lastChunk = chunk;
-
-          let transformedChunk = chunk;
-
-          if (typeof chunk === 'string' && chunk.startsWith('g')) {
-            let content = chunk.split(':').slice(1).join(':');
-
-            if (content.endsWith('\n')) {
-              content = content.slice(0, content.length - 1);
-            }
-
-            transformedChunk = `0:${content}`;
-          }
-
-          let payload = typeof transformedChunk === 'string' ? transformedChunk : JSON.stringify(transformedChunk);
-          if (typeof payload === 'string' && payload.endsWith('\n')) {
-            payload = payload.slice(0, -1);
-          }
-          controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
-        },
-      }),
-    );
+    });
 
     return new Response(dataStream, {
       status: 200,
       headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-Vercel-AI-Data-Stream': 'v1',
         Connection: 'keep-alive',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-cache, no-transform',
       },
     });
   } catch (error: any) {
