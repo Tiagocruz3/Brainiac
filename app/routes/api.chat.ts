@@ -44,10 +44,14 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
   const serverEnv = (context as any)?.cloudflare?.env || {};
   
   const streamRecovery = new StreamRecoveryManager({
-    timeout: 45000,
-    maxRetries: 2,
+    timeout: 60000, // Increased from 45s to 60s
+    maxRetries: 5, // Increased from 2 to 5
+    useExponentialBackoff: true,
     onTimeout: () => {
       logger.warn('Stream timeout - attempting recovery');
+    },
+    onMaxRetriesReached: () => {
+      logger.error('Max retries reached, stream failed');
     },
   });
 
@@ -327,25 +331,34 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         });
 
         (async () => {
-          for await (const part of result.fullStream) {
-            streamRecovery.updateActivity();
+          try {
+            for await (const part of result.fullStream) {
+              streamRecovery.updateActivity();
 
-            if (part.type === 'error') {
-              const error: any = part.error;
-              logger.error('Streaming error:', error);
-              streamRecovery.stop();
+              if (part.type === 'error') {
+                const error: any = part.error;
+                logger.error('Streaming error:', error);
+                streamRecovery.reportError();
+                streamRecovery.stop();
 
-              // Enhanced error handling for common streaming issues
-              if (error.message?.includes('Invalid JSON response')) {
-                logger.error('Invalid JSON response detected - likely malformed API response');
-              } else if (error.message?.includes('token')) {
-                logger.error('Token-related error detected - possible token limit exceeded');
+                // Enhanced error handling for common streaming issues
+                if (error.message?.includes('Invalid JSON response')) {
+                  logger.error('Invalid JSON response detected - likely malformed API response');
+                } else if (error.message?.includes('token')) {
+                  logger.error('Token-related error detected - possible token limit exceeded');
+                } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
+                  logger.error('Network error detected - connection may be unstable');
+                }
+
+                return;
               }
-
-              return;
             }
+            streamRecovery.stop();
+          } catch (error) {
+            logger.error('Unexpected error in stream processing:', error);
+            streamRecovery.reportError();
+            streamRecovery.stop();
           }
-          streamRecovery.stop();
         })();
         result.mergeIntoDataStream(dataStream);
       },
@@ -433,16 +446,25 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
       },
     });
   } catch (error: any) {
-    logger.error(error);
+    logger.error('Chat action error:', error);
+
+    // Determine if error is retryable based on type
+    const isNetworkError = error.message?.includes('network') ||
+                          error.message?.includes('fetch') ||
+                          error.message?.includes('timeout');
+    const isRateLimitError = error.message?.includes('rate limit') ||
+                            error.message?.includes('429');
+    const isServerError = error.statusCode >= 500 && error.statusCode < 600;
 
     const errorResponse = {
       error: true,
       message: error.message || 'An unexpected error occurred',
       statusCode: error.statusCode || 500,
-      isRetryable: error.isRetryable !== false, // Default to retryable unless explicitly false
+      isRetryable: isNetworkError || isRateLimitError || isServerError,
       provider: error.provider || 'unknown',
     };
 
+    // Handle specific error types
     if (error.message?.includes('API key')) {
       return new Response(
         JSON.stringify({
@@ -455,6 +477,42 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           status: 401,
           headers: { 'Content-Type': 'application/json' },
           statusText: 'Unauthorized',
+        },
+      );
+    }
+
+    if (error.message?.includes('quota') || error.message?.includes('storage')) {
+      return new Response(
+        JSON.stringify({
+          ...errorResponse,
+          message: 'Storage quota exceeded. Please free up space.',
+          statusCode: 507,
+          isRetryable: false,
+        }),
+        {
+          status: 507,
+          headers: { 'Content-Type': 'application/json' },
+          statusText: 'Insufficient Storage',
+        },
+      );
+    }
+
+    if (isRateLimitError) {
+      return new Response(
+        JSON.stringify({
+          ...errorResponse,
+          message: 'Rate limit exceeded. Please try again later.',
+          statusCode: 429,
+          isRetryable: true,
+          retryAfter: 60, // Suggest retry after 60 seconds
+        }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': '60'
+          },
+          statusText: 'Too Many Requests',
         },
       );
     }
