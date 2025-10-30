@@ -323,27 +323,11 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         });
 
         // Merge the LLM stream into our data stream
+        // Note: After merging, we cannot iterate fullStream as it's already consumed
         result.mergeIntoDataStream(dataStream);
 
-        // Monitor stream health in background
-        (async () => {
-          try {
-            for await (const part of result.fullStream) {
-              streamRecovery.updateActivity();
-
-              if (part.type === 'error') {
-                const error: any = part.error;
-                logger.error('Streaming error:', error);
-                streamRecovery.reportError();
-              }
-            }
-          } catch (error) {
-            logger.error('Stream monitoring error:', error);
-            streamRecovery.reportError();
-          } finally {
-            streamRecovery.stop();
-          }
-        })();
+        // Stop recovery since stream is successfully merged
+        streamRecovery.stop();
         } catch (executeError: any) {
           logger.error('Error in execute block:', executeError);
           throw executeError; // Re-throw to trigger onError handler
