@@ -100,9 +100,10 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         'X-Vercel-AI-Data-Stream': 'v1',
       },
       async execute(dataStream) {
-        streamRecovery.startMonitoring();
+        try {
+          streamRecovery.startMonitoring();
 
-        const filePaths = getFilePaths(files || {});
+          const filePaths = getFilePaths(files || {});
         let filteredFiles: FileMap | undefined = undefined;
         let summary: string | undefined = undefined;
         let messageSliceId = 0;
@@ -290,18 +291,8 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               messageSliceId,
             });
 
+            // Merge continuation stream
             result.mergeIntoDataStream(dataStream);
-
-            (async () => {
-              for await (const part of result.fullStream) {
-                if (part.type === 'error') {
-                  const error: any = part.error;
-                  logger.error(`${error}`);
-
-                  return;
-                }
-              }
-            })();
 
             return;
           },
@@ -331,6 +322,10 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           messageSliceId,
         });
 
+        // Merge the LLM stream into our data stream
+        result.mergeIntoDataStream(dataStream);
+
+        // Monitor stream health in background
         (async () => {
           try {
             for await (const part of result.fullStream) {
@@ -340,30 +335,28 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
                 const error: any = part.error;
                 logger.error('Streaming error:', error);
                 streamRecovery.reportError();
-                streamRecovery.stop();
-
-                // Enhanced error handling for common streaming issues
-                if (error.message?.includes('Invalid JSON response')) {
-                  logger.error('Invalid JSON response detected - likely malformed API response');
-                } else if (error.message?.includes('token')) {
-                  logger.error('Token-related error detected - possible token limit exceeded');
-                } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
-                  logger.error('Network error detected - connection may be unstable');
-                }
-
-                return;
               }
             }
-            streamRecovery.stop();
           } catch (error) {
-            logger.error('Unexpected error in stream processing:', error);
+            logger.error('Stream monitoring error:', error);
             streamRecovery.reportError();
+          } finally {
             streamRecovery.stop();
           }
         })();
-        result.mergeIntoDataStream(dataStream);
+        } catch (executeError: any) {
+          logger.error('Error in execute block:', executeError);
+          throw executeError; // Re-throw to trigger onError handler
+        }
       },
       onError: (error: any) => {
+        logger.error('onError handler triggered with error:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+          fullError: JSON.stringify(error, null, 2)
+        });
+
         // Provide more specific error messages for common issues
         const errorMessage = error.message || 'Unknown error';
 
