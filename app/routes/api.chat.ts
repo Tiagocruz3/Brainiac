@@ -1,5 +1,5 @@
 import { type ActionFunctionArgs } from '@remix-run/node';
-import { createDataStream, generateId } from 'ai';
+import { createDataStreamResponse, generateId } from 'ai';
 import { MAX_RESPONSE_SEGMENTS, MAX_TOKENS, type FileMap } from '~/lib/.server/llm/constants';
 import { CONTINUE_PROMPT } from '~/lib/common/prompts/prompts';
 import { streamText, type Messages, type StreamingOptions } from '~/lib/.server/llm/stream-text';
@@ -94,7 +94,11 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     const totalMessageContent = messages.reduce((acc, message) => acc + message.content, '');
     logger.debug(`Total message length: ${totalMessageContent.split(' ').length}, words`);
 
-    const dataStream = createDataStream({
+    return createDataStreamResponse({
+      status: 200,
+      headers: {
+        'X-Vercel-AI-Data-Stream': 'v1',
+      },
       async execute(dataStream) {
         streamRecovery.startMonitoring();
 
@@ -392,16 +396,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         }
 
         return `Custom error: ${errorMessage}`;
-      },
-    });
-
-    return new Response(dataStream, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'X-Vercel-AI-Data-Stream': 'v1',
-        Connection: 'keep-alive',
-        'Cache-Control': 'no-cache, no-transform',
       },
     });
   } catch (error: any) {
