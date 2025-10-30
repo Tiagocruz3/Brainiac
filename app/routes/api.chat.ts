@@ -80,6 +80,16 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     parseCookies(cookieHeader || '').providers || '{}',
   );
 
+  // Debug logging for API key configuration
+  logger.debug('API Keys present:', Object.keys(apiKeys));
+  logger.debug('Provider settings:', Object.keys(providerSettings));
+
+  // Check which model/provider is being used
+  const firstMessage = messages.find(m => m.role === 'user');
+  if (firstMessage) {
+    logger.debug('First message content preview:', firstMessage.content.substring(0, 100));
+  }
+
   const stream = new SwitchableStream();
 
   const cumulativeUsage = {
@@ -373,7 +383,12 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           errorMessage.includes('unauthorized') ||
           errorMessage.includes('authentication')
         ) {
-          return 'Custom error: Invalid or missing API key. Please check your API key configuration.';
+          logger.error('Authentication error details:', {
+            hasApiKeys: Object.keys(apiKeys).length > 0,
+            providers: Object.keys(apiKeys),
+            errorMessage: errorMessage
+          });
+          return `Custom error: Invalid or missing API key. Please check your API key configuration for the selected provider. Available providers: ${Object.keys(apiKeys).join(', ') || 'none'}`;
         }
 
         if (errorMessage.includes('token') && errorMessage.includes('limit')) {
