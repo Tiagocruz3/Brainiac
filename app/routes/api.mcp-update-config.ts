@@ -22,9 +22,14 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     const mcpService = MCPService.getInstance();
-    const serverTools = await mcpService.updateConfig(mcpConfig);
-
-    return Response.json(serverTools);
+    try {
+      const serverTools = await mcpService.updateConfig(mcpConfig);
+      return Response.json(serverTools);
+    } catch (e) {
+      // If config is invalid or servers fail to initialize, don't break the app
+      logger.warn('Invalid MCP config or server init error; returning empty tools');
+      return Response.json({});
+    }
   } catch (error) {
     logger.error('Error updating MCP config:', error);
     return Response.json({ error: 'Failed to update MCP config' }, { status: 500 });
