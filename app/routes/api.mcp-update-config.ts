@@ -6,10 +6,19 @@ const logger = createScopedLogger('api.mcp-update-config');
 
 export async function action({ request }: ActionFunctionArgs) {
   try {
-    const mcpConfig = (await request.json()) as MCPConfig;
+    const raw = await request.text();
+    let mcpConfig: MCPConfig = { mcpServers: {} };
 
-    if (!mcpConfig || typeof mcpConfig !== 'object') {
-      return Response.json({ error: 'Invalid MCP servers configuration' }, { status: 400 });
+    if (raw && raw.trim().length > 0) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          mcpConfig = parsed as MCPConfig;
+        }
+      } catch (parseErr) {
+        logger.warn('Malformed MCP config payload, defaulting to empty config');
+        mcpConfig = { mcpServers: {} };
+      }
     }
 
     const mcpService = MCPService.getInstance();
